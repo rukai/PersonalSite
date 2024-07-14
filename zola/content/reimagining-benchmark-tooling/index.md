@@ -1,5 +1,5 @@
 +++
-title = "Benchmark tooling can be so much better"
+title = "Reimagining Benchmark Tooling"
 date = 2024-07-16
 +++
 
@@ -13,7 +13,7 @@ But I also see a different solution, one that requires rethinking how we approac
 
 ## What I need from benchmark tooling
 
-* benches complete quickly, while still giving accurate and stable results.
+* benches give accurate and stable results.
 * compare different benchmark runs during development.
 * track benchmark results in CI to:
   * see trends over time
@@ -23,7 +23,7 @@ But I also see a different solution, one that requires rethinking how we approac
 
 ## Where we are
 
-Here is a quick whirlwind through various benchmarking frameworks and related tooling.
+Here is a quick whirlwind through various benchmarking frameworks and CI tooling.
 
 ### Criterion
 
@@ -33,15 +33,11 @@ But it has some serious problems:
 * Each benchmark takes multiple seconds to complete
 * Hard to quickly discern benchmark results
 * Largely unmaintained
-* Benches are run locally on the developers noisy development machine.
 
 ### Divan
 
 Divan is improving the situation.
-But has a critical limitation:
-
-* it is missing cross-run comparisons
-* Benches are run locally on the developers noisy development machine.
+But has a critical limitation: it is missing cross-run comparisons
 
 ### Bencher.dev
 
@@ -53,18 +49,15 @@ It could be used as a component within a complete benchmarking solution though!
 
 I am pretty excited about codspeed:
 
-* simple to setup:
-  * swap criterion dep for codspeed-criterion-compat
-  * Add a github actions workflow
-  * Enable codspeed app for your github repo
+* simple to setup
 * uses instruction counting so it can run in CI without being affected by the noisy shared hosting.
-* those super cool flamegraph diffs.
+* also has these really cool flamegraph diffs in the CI output showing, so its not just measuring the performance impact of the PR, but also giving insight into why there is a performance impact
 
-Some problems are:
+Some problems with codspeed are:
 
-* Need to use criterion
+* The project needs to use a fork of criterion
 * Lacks measurements of walltime
-  * Something like adding a 10s sleep will go completely unnoticed
+  * So, something like adding a 10s sleep will go completely unnoticed
 
 ### rustc-perf
 
@@ -80,11 +73,13 @@ One downside is that there is no way to run certain benches remotely without goi
 But ultimately none of this matters since it is inaccessible to every project that isn't rustc. 😭
 It is however a very good reference of what is possible.
 
+<!--
 ### Samply
 
 A far more integrated sampling profiler solution than the traditional `perf -> perl flamegraph` approach.
 Has its own implementation of sampling profiler and displays results in the firefox profiler web UI.
 Samply is very cool but it would become even more convenient if we took integration a step further and `cargo bench – –profiler samply` was all it took to profile your benches, in the process filtering out all the noise from the bench runner.
+-->
 
 ## Analysis of these tools
 
@@ -105,20 +100,16 @@ But you can at least pick one or the other or another tool entirely and fulfil s
 For running benchmarks in CI codspeed gets a bunch of things right but lacks any kind of walltime measurement.
 -->
 
-## Solutions
+## Reimagining benchmarks
 
-To form a better ecosystem of benchmark tooling I propose the following:
+To form a better ecosystem of benchmark tooling I propose the following two changes:
 
-* microbenchmark frameworks should be designed around:
-  * running on a remote machine tuned for determinism.
-  * running benches in both optimal/suboptimal non-deterministic conditions.
-* Introduce a new kind of benchmark framework: integration benchmarking framework
-* micro+integration benchmark frameworks need closer integration with profiling tooling.
-* micro+integration benchmark frameworks need to be able to run in CI to catch regressions and evaluate improvements
+1. Introduce a new kind of benchmark framework: The “integration benchmarking framework”
+2. Microbenchmark frameworks should be designed around running on a remote machine tuned for determinism.
 
-I will explore these solutions in the rest of this article.
+I will explore these changes in the rest of this article.
 
-## integration benchmarks???
+## Integration Benchmarks???
 
 What are usually called benchmarking frameworks are in reality all "microbenchmarking frameworks".
 Designed around measuring small changes in short sections of code.
@@ -126,7 +117,7 @@ Rusty integration level benchmarking frameworks currently don't exist.
 But I'm fixing that because they really should!
 They should be tailored to measuring the far noisier world of applications, services and databases.
 
-Ok so database specific benchmarking tools certainly exist, projects like [latte](https://github.com/pkolaczk/latte).
+Ok so database specific benchmarking tools certainly exist, projects like [latte](https://github.com/pkolaczk/latte) for example.
 But I am proposing that we need generic frameworks to easily enable the creation of these kinds of benchmarks for a wide variety of applications.
 
 ### What needs do integration level benchmarks have?
@@ -164,16 +155,18 @@ At my employment I have had the opportunity to actually tackle this problem and 
 As an author of benchmarks, you provide windsock with:
 
 * Your benchmark implementations
-* Optionally, logic for setting up cloud instances needed for your benchmark.
+* Optionally, logic for setting up cloud instances needed for your benchmarks.
   * Ideally as close as possible to your production setup.
 
 And then windsock will provide you with a CLI from which you can:
 
 * Query available benchmarks
 * Run benchmarks matching specific tags.
-* windsock can automatically or manually setup and cleanup required cloud resources
-* Process benchmark results into readable tables
-  * Baselines can be set and then compared against
+   These benchmarks can be run locally or in cloud instances.
+* Manually spin up cloud resources, enabling multiple bench runs to reuse the same instances.
+   This is super useful since not all cloud resources of the same type have equivalent performance.
+* Process benchmark results into nicely formatted tables
+* Set the last run as a baseline, all future runs will compare against that baseline.
 
 Example benchmark results from windsock, comparing against a baseline for some cassandra benchmarks:
 ![Windsock table output](windsock.png)
@@ -193,7 +186,8 @@ Moving microbenchmarks to be run on a remote machine by default solves a whole b
 
 ### noise-reduction configuration
 
-In order to reduce noise in our benchmark results, we need to bring the machine closer to the deterministic ideal it is pretending to be. So we should disable things like:
+In order to reduce noise in our benchmark results, we need to bring the machine closer to the deterministic ideal it is pretending to be.
+So we should disable things like:
 
 * Hyper-threading
 * frequency scaling
@@ -201,11 +195,10 @@ In order to reduce noise in our benchmark results, we need to bring the machine 
 * All non-essential background processes and applications
   * this includes maintenance tasks like automatic OS updates while benches are running
 
-Try convincing a dev they should configure their machine this way! not a chance.
-
 While disabling these technically makes the benches less realistic, it's worth it for reducing noise in the results.
 
-For some cases of non-determinism we want to be able to explicitly test both the good or bad cases:
+However, try convincing a dev they should configure their machine this way! Not a chance.
+Therefore, the only way to get devs to run their benches in such conditions is tooling for remote bench running.zs
 
 ### The downside
 
@@ -253,12 +246,13 @@ The goal is for a standard configuration of ussal in github actions to trigger a
 * on PR merge - adding another entry point to each benchmarks graph
 * on PR creation/update - The PR is included in the graph, to compare against the history.
 
-But ussal is not usable yet.
+But ussal is just a hobby project of mine and not usable yet.
 It contains some interesting ideas but also needs a lot of work and rework.
 
+<!--
 ## Bonus ideas
 
-Here are some bonus ideas, that didnt fit into the rest of the article but that I want to see happen.
+Here are some bonus ideas, that didnt fit into the rest of the article but that I also want to see happen.
 
 ### Run benches in optimal/pessimal system state
 
@@ -273,6 +267,8 @@ Or maybe the developers just add a `#[bad_alloc]` or `#[good_alloc]` to the benc
 
 I have no idea how to actually implement the technical side of this, but I have seen some crazy things before like [putting the branch predictor in a randomized state](https://github.com/Voultapher/sort-research-rs/blob/b7bcd199e861d6f8b265164242f3c34d5c36c75f/benches/trash_prediction.rs#L7).
 And I think that solving this problem would be a huge win.
+-->
+
 <!--
 * cold + warm cpu cache testing
 * Control over whether the allocator will have memory ready to go or needs to request more from the OS.
@@ -280,6 +276,9 @@ And I think that solving this problem would be a huge win.
 -->
 
 <!--
+
+### Integrated profiling
+
 Profiling the benchmark needs to be a single CLI flag away.
 We need flags to enable the collection and reporting of:
 
@@ -291,13 +290,14 @@ We need flags to enable the collection and reporting of:
 
 ### What next?
 
-I've covered a bunch of limitations of current benchmark tooling.
-Some of the limitations need deep research, possibly even changes at the hardware or operating system level.
-But a lot of the limitations are just that we don't provide comprehensive ready to go solutions for these problems.
-Instead everyone has to cobble together their own half-baked solution.
+I hope this article gave you some ideas of what a next generation of benchmark tooling could be like.
+If windsock or ussal are exactly what you need, then consider using or experimenting with them:
 
-Theres honestly so much room for improvement here, and space for competing tools that you could pick an area that interests you and just start prototyping.
-But if you want some existing projects to contribute to, windsock or ussal may interest you.
+* Windsock is largely done, you should be making use of it today.
+* Ussal is currently unusable but represents a direction for benchmarks that I strongly believe in.
+
+But honestly there's so much room for improvement here and space for competing tools.
+So I would love to see new projects popping up either targeted at integration benchmarking or remote running of microbenchmarks.
 
 ## Other resources
 
