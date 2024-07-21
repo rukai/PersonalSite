@@ -3,71 +3,61 @@ title = "Reimagining Benchmark Tooling"
 date = 2024-07-16
 +++
 
-I've long understood that benchmarking is a fundamental part of writing efficient software.
-But after spending a lot of time writing benchmarks it's become clear to me that the existing tooling around writing, running and analyzing benchmark results is painfully limited.
+I've long known that benchmarking is key to writing efficient software.
+But after writing a lot of benchmarks I've seen how the existing tooling for writing and running benchmarks has some fundamental issues.
 <!-- more -->
 
 Now to be fair, things are improving!
-The recent appearance of projects like [divan](https://github.com/nvzqz/divan) and services like [bencher.dev](https://bencher.dev/) and [codspeed](https://codspeed.io) show that others see the same problems that I am seeing.
-But I also see a different solution, one that requires rethinking how we approach benchmarking in a few ways.
+Recent projects like [divan](https://github.com/nvzqz/divan) and services like [bencher](https://bencher.dev/) and [codspeed](https://codspeed.io) show that others see the same problems.
+But I think we could do with rethinking how we approach benchmarking.
 
-## What I need from benchmark tooling
+## Existing tools
 
-* benches give accurate and stable results.
-* compare different benchmark runs during development.
-* track benchmark results in CI to:
-  * see trends over time
-  * detect performance regressions before a PR is merged.
-* measurements taken + results displayed in a way relevant to the task at hand
-* Integration with `cargo bench` or a cargo custom command
-
-## Where we are
-
-Here is a quick whirlwind through various benchmarking frameworks and CI tooling.
+But before I get to that, I think its important to start with the existing tools.
+<!--So here is a quick whirlwind through various benchmarking frameworks and CI tooling.-->
 
 ### Criterion
 
-Criterion is the current go to for benchmarking in rust.
+[Criterion](https://github.com/bheisler/criterion.rs) is the current go to for benchmarking in rust.
 But it has some serious problems:
 
-* Each benchmark takes multiple seconds to complete
-* Hard to quickly discern benchmark results
+* Each benchmark takes multiple seconds to complete and results are still noisy.
+* Benchmark results are buried in less important details.
 * Largely unmaintained
 
 ### Divan
 
-Divan is improving the situation.
-But has a critical limitation: it is missing cross-run comparisons
+[Divan](https://github.com/nvzqz/divan) is improving upon the criterion status quo but:
 
-### Bencher.dev
+* It is still missing cross-run comparisons
+* The results are noisy.
 
-bencher.dev is a service which tracks benchmark results over time.
-It seems neat but it doesn't seem to provide a noise-free way to run benches in CI, so it doesn't provide much value to me.
+### Bencher
+
+[Bencher](https://bencher.dev) is a service which tracks benchmark results over time.
+It seems neat but I can't find a way to run noise-free benches in CI.
 It could be used as a component within a complete benchmarking solution though!
 
 ### codspeed
 
-I am pretty excited about codspeed:
+I am pretty excited about [codspeed](https://codspeed.io/):
 
-* simple to setup
-* uses instruction counting so it can run in CI without being affected by the noisy shared hosting.
-* also has these really cool flamegraph diffs in the CI output showing, so its not just measuring the performance impact of the PR, but also giving insight into why there is a performance impact
+* It uses instruction counting so it cuts the noise of shared hosting in CI.
+* It also has these really cool flamegraph diffs in the CI output, so its not just measuring the PR’s performance impact, but also shows why there’s an impact
 
 Some problems with codspeed are:
 
 * The project needs to use a fork of criterion
 * Lacks measurements of walltime
-  * So, something like adding a 10s sleep will go completely unnoticed
 
 ### rustc-perf
 
-<https://kobzol.github.io/rust/rustc/2023/08/18/rustc-benchmark-suite.html>
-rustc perf has been around for a while and has been my hint that, "hey, things can be better"
+[rustc perf](https://kobzol.github.io/rust/rustc/2023/08/18/rustc-benchmark-suite.html) has been around for a while and has been my hint that, "hey, things can be better".
 It nails pretty much everything:
 
-* measures both instruction count and wall time
-* results are tracked in CI, generating graphs for viewing trends over time.
-* runs benches on a remote machine configured for running benchmarks with minimal noise.
+* Measures both instruction count and wall time
+* Results are tracked in CI, generating graphs for viewing trends over time.
+* Runs benches on a remote machine configured for running benchmarks with minimal noise.
 
 One downside is that there is no way to run certain benches remotely without going through the lengthy CI process.
 But ultimately none of this matters since it is inaccessible to every project that isn't rustc. 😭
@@ -81,13 +71,19 @@ Has its own implementation of sampling profiler and displays results in the fire
 Samply is very cool but it would become even more convenient if we took integration a step further and `cargo bench – –profiler samply` was all it took to profile your benches, in the process filtering out all the noise from the bench runner.
 -->
 
-## Analysis of these tools
+### Conclusion
+
+<!--
+* I need to be able to run benchmarks in CI
+  * I am only human, issues will slip through unless I regression test performance.
+* I need my benchmark results to be free of noise, both locally and in CI
+  * My benchmarks are always noisy and it makes working on performance much harder than it should be.
+-->
 
 Even with all these tools there are still many holes in the ecosystem.
 Running benchmarks noise-free locally is very difficult and the situation is far worse in CI.
 And all these tools are focused on measuring performance at the microbenchmark level.
 While its possible to use them for measuring integration level performance they are not well suited for that task.
-This leads us to the solutions in the next section.
 
 <!--
 ## Analysis of current tools
@@ -100,25 +96,47 @@ But you can at least pick one or the other or another tool entirely and fulfil s
 For running benchmarks in CI codspeed gets a bunch of things right but lacks any kind of walltime measurement.
 -->
 
+<!--
+## where we fall short
+
+-->
+
 ## Reimagining benchmarks
 
-To form a better ecosystem of benchmark tooling I propose the following two changes:
+The core problem I wanted to solve was that of noise.
+I realized that to make a real impact on noisy benchmarks, its not enough to just perform fancy statistical analysis.
+We also need to actually reduce the noise that benchmarks experience in the first place.
+And to do that, we need to run all of our benchmarks on machines tuned for determinism.
+
+However I noticed that we also want to benchmark performance at an integration level.
+It wouldn't make sense to run those benchmarks on a single machine, it would be much better to run those benchmarks with multiple cloud instances setup the same way they are in production.
+Combined with my poor past experience of writing integration level benchmarks with criterion, it became clear that we need new benchmark frameworks targeted solely at integration level benchmarking.
+
+Which leads me to my conclusion.
+To form a better ecosystem of benchmark tooling we need to make the following two changes:
 
 1. Introduce a new kind of benchmark framework: The “integration benchmarking framework”
+   * Prioritizing accuracy over noise reduction.
 2. Microbenchmark frameworks should be designed around running on a remote machine tuned for determinism.
+   * Prioritizing noise reduction over accuracy.
 
-I will explore these changes in the rest of this article.
+<!--
+In this way, with a suite of both microbenchmarks and integration benchmarks you can understand your system's performance at a high level with integration benchmarks and then dive down into the details with microbenchmarks.
+-->
+
+I will explore what these changes to the ecosystem could look like in the rest of the article.
 
 ## Integration Benchmarks???
 
-What are usually called benchmarking frameworks are in reality all "microbenchmarking frameworks".
+What we usually call benchmarking frameworks are really more "microbenchmarking frameworks".
+They're meant for measuring changes in short sections of code.
 Designed around measuring small changes in short sections of code.
 Rusty integration level benchmarking frameworks currently don't exist.
 But I'm fixing that because they really should!
 They should be tailored to measuring the far noisier world of applications, services and databases.
 
 Ok so database specific benchmarking tools certainly exist, projects like [latte](https://github.com/pkolaczk/latte) for example.
-But I am proposing that we need generic frameworks to easily enable the creation of these kinds of benchmarks for a wide variety of applications.
+But I believe we need generic frameworks to enable writing benchmarks for lots of different applications.
 
 ### What needs do integration level benchmarks have?
 
@@ -150,7 +168,7 @@ As you can see, all of this stuff is meaningless to a microbenchmark and trying 
 
 ### A possible solution: windsock
 
-At my employment I have had the opportunity to actually tackle this problem and wrote [windsock](https://github.com/shotover/windsock) an open source integration level benchmarking framework.
+At my job I have had the opportunity to actually tackle this problem and wrote [windsock](https://github.com/shotover/windsock) an open source integration level benchmarking framework.
 
 As an author of benchmarks, you provide windsock with:
 
@@ -162,64 +180,63 @@ And then windsock will provide you with a CLI from which you can:
 
 * Query available benchmarks
 * Run benchmarks matching specific tags.
-   These benchmarks can be run locally or in cloud instances.
-* Manually spin up cloud resources, enabling multiple bench runs to reuse the same instances.
-   This is super useful since not all cloud resources of the same type have equivalent performance.
+  * These benchmarks can be run locally or in cloud instances.
+* Manually spin up cloud resources
+  * This allows instances to be reused across runs, reducing noise.
 * Process benchmark results into nicely formatted tables
-* Set the last run as a baseline, all future runs will compare against that baseline.
+* Set the last run as a baseline, all future runs will automatically compare against that baseline.
 
 Example benchmark results from windsock, comparing against a baseline for some cassandra benchmarks:
 ![Windsock table output](windsock.png)
 
 I use windsock often at work and can recommend giving it a go if you need integration level benchmarks.
-Windsock is designed to be general, but at the same time its featureset is just whatever we found we needed at work.
+Windsock is designed to be general, but right now its featureset is only what we needed at work.
 
 ## Remote running microbenchmarks
 
-Moving microbenchmarks to be run on a remote machine by default solves a whole bunch of problems:
+Now back to the second proposed change to the ecosystem, moving microbenchmarks to be run on a remote machine.
+"Remote" by default solves a whole bunch of problems:
 
 * The server can be configured to run more deterministically than a dev machine.
   * More accurate results
-  * Less fussing around by the developer - Do I need to close my IDE and browser while running benches?
-* Multiple server's can be setup allowing different CPU architectures and OS's to be tested concurrently
+  * Less fuss by the developer - Am I really going to close my IDE and browser to run benches?
+* Multiple servers can be setup so different CPU architectures and OS's can be tested concurrently
 * Benchmarks can be run in CI with accurate walltime measurements.
 
 ### noise-reduction configuration
 
-In order to reduce noise in our benchmark results, we need to bring the machine closer to the deterministic ideal it is pretending to be.
+In order to reduce noise, the machine needs to be closer to the deterministic ideal it is pretending to be.
 So we should disable things like:
 
 * Hyper-threading
 * frequency scaling
 * ASLR (Address Space Layout Randomization)
 * All non-essential background processes and applications
-  * this includes maintenance tasks like automatic OS updates while benches are running
+  * Tasks like automatic OS updates should be paused while benches are running
 
 While disabling these technically makes the benches less realistic, it's worth it for reducing noise in the results.
+If you want realism, write an integration benchmark!
 
 However, try convincing a dev they should configure their machine this way! Not a chance.
-Therefore, the only way to get devs to run their benches in such conditions is tooling for remote bench running.zs
+Therefore, the only way to get devs to run their benches in such conditions is tooling for remote bench running.
 
 ### The downside
 
-There is however one downside to remote running microbenchmarks.
-The maintenance and monetary cost of running a physical server.
+There is however one downside to remote running microbenchmarks: the cost of running a physical server.
 
-Shared cloud resources are no good since they are too noisy.
-So, there are two approaches that can be taken here:
+After all, shared cloud resources are noisy.
+So, there are two options here:
 
 * Running an SBC (single board computer) from your home network.
-* Renting a small bare metal server, they cost ~$70AUD a month at places like hetzner.
+* Renting a small bare metal server, they cost ~$70AUD a month at places like Hetzner.
 
-Using shared cloud instances is no good since they are too noisy.
-
-To minimize the barrier to entry here we need trivial setup for the most popular SBC, the raspberry pi.
+For a low barrier to entry we need trivial setup for the most popular SBC, the raspberry pi.
 There should be a program that will generate a ready to go raspberry pi OS running the benchmarker and then flash the image to the SD card.
 This image should have all the required OS tweaks to increase determinism.
 
 This infrastructure would be run on a per project basis.
 Config files pointing at the bench runner server should be checked into the project.
-However individual user key's should be manually handed out to contributors, set in an env var, to avoid abuse of the compute.
+However individual user key's should be manually handed out to contributors to avoid abuse of the compute.
 
 ### A possible solution: Ussal Bench
 
@@ -231,7 +248,7 @@ The server, called a runner, receives the benchmarks, runs them in a sandbox and
 
 The fleet of runners can be setup:
 
-* with different hardware and software configurations to test performance in a wide range of possible user devices.
+* with different hardware and software configurations to test performance on many possible user or server devices.
 * with identical hardware and software configurations to concurrently run benches across multiple machines.
 
 Runners can also be run on a home network without exposing any ports to the internet.
@@ -293,11 +310,11 @@ We need flags to enable the collection and reporting of:
 I hope this article gave you some ideas of what a next generation of benchmark tooling could be like.
 If windsock or ussal are exactly what you need, then consider using or experimenting with them:
 
-* Windsock is largely done, you should be making use of it today.
-* Ussal is currently unusable but represents a direction for benchmarks that I strongly believe in.
+* [Windsock](https://github.com/shotover/windsock) is largely done, you could be using it today.
+* [Ussal](https://github.com/rukai/ussal-bench) is currently unusable but represents a direction for benchmarks that I strongly believe in.
 
-But honestly there's so much room for improvement here and space for competing tools.
-So I would love to see new projects popping up either targeted at integration benchmarking or remote running of microbenchmarks.
+But honestly there's so much room for improvement here and space for competing projects.
+So I would love to see new tools for integration benchmarking or remote microbenchmarking.
 
 ## Other resources
 
