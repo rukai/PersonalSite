@@ -29,6 +29,7 @@ menu_items = [
     # tags should only be enabled if you have "tags" taxonomy
     # see documentation below for more details
     {name = "DPedal", url = "/dpedal"},
+    {name = "Rukaibox", url = "/rukaibox"},
     {name = "Rukai Data", url = "/rukaidata"},
     {name = "Canon Collision", url = "/canoncollision"},
 
