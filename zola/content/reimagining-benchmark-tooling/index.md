@@ -104,11 +104,11 @@ For running benchmarks in CI codspeed gets a bunch of things right but lacks any
 ## Reimagining benchmarks
 
 The core problem I wanted to solve was that of noise.
-I realized that to make a real impact on noisy benchmarks, its not enough to just perform fancy statistical analysis.
+I realized that to make a real impact on noisy benchmarks, its not enough to just perform [fancy statistical analysis](https://bheisler.github.io/criterion.rs/book/analysis.html).
 We also need to actually reduce the noise that benchmarks experience in the first place.
 And to do that, we need to run all of our benchmarks on machines tuned for determinism.
 
-However I noticed that we also want to benchmark performance at an integration level.
+However, I noticed that when working on services or databases, we also want to benchmark performance at an integration level.
 It wouldn't make sense to run those benchmarks on a single machine, it would be much better to run those benchmarks with multiple cloud instances setup the same way they are in production.
 Combined with my poor past experience of writing integration level benchmarks with criterion, it became clear that we need new benchmark frameworks targeted solely at integration level benchmarking.
 
@@ -129,13 +129,12 @@ I will explore what these changes to the ecosystem could look like in the rest o
 ## Integration Benchmarks???
 
 What we usually call benchmarking frameworks are really more "microbenchmarking frameworks".
-They're meant for measuring changes in short sections of code.
-Designed around measuring small changes in short sections of code.
+They are designed around measuring small changes in short sections of code.
 Rusty integration level benchmarking frameworks currently don't exist.
 But I'm fixing that because they really should!
 They should be tailored to measuring the far noisier world of applications, services and databases.
 
-Ok so database specific benchmarking tools certainly exist, projects like [latte](https://github.com/pkolaczk/latte) for example.
+Database specific benchmarking tools certainly exist, projects like [latte](https://github.com/pkolaczk/latte) for example.
 But I believe we need generic frameworks to enable writing benchmarks for lots of different applications.
 
 ### What needs do integration level benchmarks have?
@@ -164,7 +163,7 @@ In the simplest case, this would be just a single application binary.
 But on the more complex end, this could look like spinning up multiple cloud instances with a database, service and client all running on different instances.
 So we want the framework to provide resource management, to ensure each bench can efficiently create any resources it needs.
 
-As you can see, all of this stuff is meaningless to a microbenchmark and trying to jam it into a microbenchmarking framework would result in something that is too generic and not well suited to either task.
+As you can see, all of this stuff is meaningless to a microbenchmark and trying to jam it into a microbenchmarking framework would result in something that is trying to be everything and ultimately not well suited to either task.
 
 ### A possible solution: windsock
 
@@ -199,7 +198,7 @@ Now back to the second proposed change to the ecosystem, moving microbenchmarks 
 
 * The server can be configured to run more deterministically than a dev machine.
   * More accurate results
-  * Less fuss by the developer - Am I really going to close my IDE and browser to run benches?
+  * Less fuss by the developer - "Am I really going to close my IDE and browser to run benches?"
 * Multiple servers can be setup so different CPU architectures and OS's can be tested concurrently
 * Benchmarks can be run in CI with accurate walltime measurements.
 
@@ -234,9 +233,18 @@ For a low barrier to entry we need trivial setup for the most popular SBC, the r
 There should be a program that will generate a ready to go raspberry pi OS running the benchmarker and then flash the image to the SD card.
 This image should have all the required OS tweaks to increase determinism.
 
-This infrastructure would be run on a per project basis.
+It would be ideal if one central group could run such servers and everyone else benefits from it.
+Unfortunately, even if the good actors were conservative with their use, pretty soon the miners and other kinds of troublesome people would start to take advantage of it.
+Instead, each project will need to setup and run their own infrastructure.
 Config files pointing at the bench runner server should be checked into the project.
-However individual user key's should be manually handed out to contributors to avoid abuse of the compute.
+Individual user key's should be manually handed out to trusted contributors to allow tracking who is using the server for what.
+
+The workflow for using it would then become:
+
+1. Frequent contributor requests access to the server
+2. Contributor is sent a key.
+3. Contributor sets local environment variable or config file with key
+4. Contributor does `cargo name-of-tool` to remotely run their benchmarks.
 
 ### A possible solution: Ussal Bench
 
@@ -251,10 +259,11 @@ The fleet of runners can be setup:
 * with different hardware and software configurations to test performance on many possible user or server devices.
 * with identical hardware and software configurations to concurrently run benches across multiple machines.
 
+<!--
 Runners can also be run on a home network without exposing any ports to the internet.
 This is enabled by the orchestrator which can be run cheaply in a shared cloud instance and proxies requests to the physical servers.
+-->
 
-Ussal client and server can run criterion benchmarks together.
 The ussal client can remotely run benches compiled on your local machine, giving devs immediate feedback on their benchmarks, right in their terminal.
 
 The ussal client can also run in CI, generating these [webpages with cool egui graphs](https://rukai.github.io/ussal-bench/).
